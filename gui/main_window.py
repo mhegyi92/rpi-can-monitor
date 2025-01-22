@@ -1,9 +1,12 @@
 import logging
-from PyQt6.QtWidgets import QMainWindow, QTableWidgetItem, QMessageBox, QPushButton, QLineEdit, QTableWidget
+from PyQt6.QtWidgets import (
+    QMainWindow, QTableWidgetItem, QMessageBox, QPushButton, QLineEdit, QTableWidget, QLabel
+)
 from PyQt6.uic import loadUi
 from core.utils import parse_value
 from core.filter_manager import FilterManager
 from core.message_manager import MessageManager
+from core.can_interface import CANInterface
 
 
 class MainWindow(QMainWindow):
@@ -13,57 +16,80 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        loadUi("ui/main_window.ui", self)  # Load the UI created with Qt Designer
+        loadUi("ui/main_window.ui", self)
 
         self.filter_manager = FilterManager()
         self.message_manager = MessageManager()
+        self.can_interface = CANInterface()
 
-        # Initialize widgets for filters
+        # Initialize GUI components
+        self.init_filter_widgets()
+        self.init_message_widgets()
+        self.init_can_widgets()
+
+        # Setup tables
+        self.setup_filter_table()
+        self.setup_message_table()
+
+        # Set initial CAN connection status
+        self.update_status_indicator(False)
+
+        logging.info("MainWindow initialized.")
+
+    def init_filter_widgets(self):
+        """Initialize widgets related to filters."""
         self.filters_table = self.findChild(QTableWidget, "tableFilters")
         self.filter_id_input = self.findChild(QLineEdit, "inputFilterId")
-        self.filter_byte_inputs = [
-            self.findChild(QLineEdit, f"inputFilterByte{i}") for i in range(8)
-        ]
+        self.filter_byte_inputs = [self.findChild(QLineEdit, f"inputFilterByte{i}") for i in range(8)]
         self.add_filter_button = self.findChild(QPushButton, "buttonAddFilter")
         self.remove_filter_button = self.findChild(QPushButton, "buttonRemoveFilter")
         self.clear_filters_button = self.findChild(QPushButton, "buttonClearFilters")
 
-        # Initialize widgets for messages
-        self.messages_table = self.findChild(QTableWidget, "tableMessages")
-        self.message_name_input = self.findChild(QLineEdit, "inputMessageName")
-        self.message_id_input = self.findChild(QLineEdit, "inputMessageId")
-        self.message_byte_inputs = [
-            self.findChild(QLineEdit, f"inputMessageByte{i}") for i in range(8)
-        ]
-        self.add_message_button = self.findChild(QPushButton, "buttonAddMessage")
-        self.remove_message_button = self.findChild(QPushButton, "buttonRemoveMessage")
-        self.clear_messages_button = self.findChild(QPushButton, "buttonClearMessages")
-
-        # Connect buttons to their handlers (filters)
+        # Connect filter buttons to handlers
         self.add_filter_button.clicked.connect(self.handle_add_filter)
         self.remove_filter_button.clicked.connect(self.handle_remove_filter)
         self.clear_filters_button.clicked.connect(self.handle_clear_filters)
         self.filters_table.itemChanged.connect(self.handle_edit_filter)
 
-        # Connect buttons to their handlers (messages)
+    def init_message_widgets(self):
+        """Initialize widgets related to messages."""
+        self.messages_table = self.findChild(QTableWidget, "tableMessages")
+        self.message_name_input = self.findChild(QLineEdit, "inputMessageName")
+        self.message_id_input = self.findChild(QLineEdit, "inputMessageId")
+        self.message_byte_inputs = [self.findChild(QLineEdit, f"inputMessageByte{i}") for i in range(8)]
+        self.add_message_button = self.findChild(QPushButton, "buttonAddMessage")
+        self.remove_message_button = self.findChild(QPushButton, "buttonRemoveMessage")
+        self.clear_messages_button = self.findChild(QPushButton, "buttonClearMessages")
+
+        # Connect message buttons to handlers
         self.add_message_button.clicked.connect(self.handle_add_message)
         self.remove_message_button.clicked.connect(self.handle_remove_message)
         self.clear_messages_button.clicked.connect(self.handle_clear_messages)
         self.messages_table.itemChanged.connect(self.handle_edit_message)
 
-        # Setup the filters table
-        self.filters_table.setColumnCount(9)  # One for ID, and eight for data bytes
+    def init_can_widgets(self):
+        """Initialize widgets related to CAN interface."""
+        self.channel_input = self.findChild(QLineEdit, "inputCanChannel")
+        self.bitrate_input = self.findChild(QLineEdit, "inputCanBitrate")
+        self.connect_button = self.findChild(QPushButton, "buttonCanConnect")
+        self.status_indicator = self.findChild(QLabel, "ledCanStatus")
+
+        # Connect CAN connect button to handler
+        self.connect_button.clicked.connect(self.handle_connect)
+
+    def setup_filter_table(self):
+        """Setup the filters table."""
+        self.filters_table.setColumnCount(9)  # One for ID and eight for data bytes
         self.filters_table.setHorizontalHeaderLabels(["Filter ID"] + [f"Byte {i}" for i in range(8)])
         self.filters_table.setEditTriggers(self.filters_table.EditTrigger.AllEditTriggers)
 
-        # Setup the messages table
+    def setup_message_table(self):
+        """Setup the messages table."""
         self.messages_table.setColumnCount(10)  # One for Name, ID, and eight for data bytes
         self.messages_table.setHorizontalHeaderLabels(
             ["Message Name", "Message ID"] + [f"Byte {i}" for i in range(8)]
         )
         self.messages_table.setEditTriggers(self.messages_table.EditTrigger.AllEditTriggers)
-
-        logging.info("MainWindow initialized.")
 
     def handle_add_filter(self):
         """Handles adding a new filter."""
@@ -339,6 +365,41 @@ class MainWindow(QMainWindow):
                 self.messages_table.setItem(row_index, col_index + 2, QTableWidgetItem(hex(byte_value)))
 
         self.messages_table.blockSignals(False)
+
+    def handle_connect(self):
+        """Handles connecting and disconnecting to the CAN interface."""
+        if self.can_interface.is_connected():
+            # Disconnect if already connected
+            if self.can_interface.disconnect():
+                self.update_status_indicator(False)
+                self.connect_button.setText("Connect")
+            else:
+                self.show_error("Failed to disconnect from the CAN interface.")
+        else:
+            # Connect with user-specified channel and bitrate
+            channel = self.channel_input.text().strip()
+            bitrate = self.bitrate_input.text().strip()
+
+            if not channel or not bitrate:
+                self.show_error("Channel and bitrate are required to connect.")
+                return
+
+            try:
+                bitrate = int(bitrate)  # Ensure bitrate is an integer
+                if self.can_interface.connect(channel, bitrate):
+                    self.update_status_indicator(True)
+                    self.connect_button.setText("Disconnect")
+                else:
+                    self.show_error("Failed to connect to the CAN interface.")
+            except ValueError:
+                self.show_error("Invalid bitrate. Please enter a valid number.")
+
+    def update_status_indicator(self, connected):
+        """Updates the status indicator based on the connection state."""
+        if connected:
+            self.status_indicator.setStyleSheet("background-color: green; border-radius: 8px;")
+        else:
+            self.status_indicator.setStyleSheet("background-color: red; border-radius: 8px;")
 
     def show_error(self, message):
         """Displays an error message to the user."""
