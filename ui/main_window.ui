@@ -665,31 +665,31 @@
           </property>
           <layout class="QGridLayout" name="gridLayout_3">
            <item row="0" column="0">
-            <widget class="QLabel" name="labelChannel">
+            <widget class="QLabel" name="labelCanChannel">
              <property name="text">
               <string>Channel</string>
              </property>
             </widget>
            </item>
            <item row="0" column="1">
-            <widget class="QLineEdit" name="inputChannel"/>
+            <widget class="QLineEdit" name="inputCanChannel"/>
            </item>
            <item row="0" column="2">
-            <widget class="QPushButton" name="buttonConnect">
+            <widget class="QPushButton" name="buttonCanConnect">
              <property name="text">
               <string>Connect</string>
              </property>
             </widget>
            </item>
            <item row="1" column="0">
-            <widget class="QLabel" name="labelBitrate">
+            <widget class="QLabel" name="labelCanBitrate">
              <property name="text">
               <string>Bitrate</string>
              </property>
             </widget>
            </item>
            <item row="1" column="1">
-            <widget class="QLineEdit" name="inputBitrate"/>
+            <widget class="QLineEdit" name="inputCanBitrate"/>
            </item>
            <item row="1" column="2" alignment="Qt::AlignRight|Qt::AlignBottom">
             <widget class="QFrame" name="frameCanStatus">
