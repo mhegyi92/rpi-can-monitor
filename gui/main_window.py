@@ -401,6 +401,44 @@ class MainWindow(QMainWindow):
         else:
             self.status_indicator.setStyleSheet("background-color: red; border-radius: 8px;")
 
+def handle_send_message(self):
+    """Handles sending a CAN message."""
+    try:
+        message_id = parse_value(self.message_id_input.text())
+        data = [parse_value(input.text()) for input in self.message_byte_inputs if input.text().strip()]
+        
+        if not (0 <= message_id <= 0x7FF):
+            raise ValueError(f"Invalid Message ID: {message_id}. Must be in range 0-0x7FF.")
+        if len(data) > 8:
+            raise ValueError(f"Invalid data length: {len(data)}. Must not exceed 8 bytes.")
+        
+        self.can_interface.send_message(message_id, data)
+        self.show_info(f"Message sent: ID={hex(message_id)}, Data={data}")
+    except Exception as e:
+        self.show_error(f"Failed to send message: {e}")
+
+    def handle_start_listening(self):
+        """Starts or stops listening for CAN messages."""
+        if self.can_interface.is_connected():
+            if self.connect_button.text() == "Start Listening":
+                self.can_interface.start_receiving()
+                self.connect_button.setText("Stop Listening")
+            else:
+                self.can_interface.stop_receiving()
+                self.connect_button.setText("Start Listening")
+        else:
+            self.show_error("Connect to the CAN interface first.")
+
+    def update_received_messages(self):
+        """Updates the received messages table."""
+        message = self.can_interface.get_received_message()
+        if message:
+            row = self.messages_table.rowCount()
+            self.messages_table.insertRow(row)
+            self.messages_table.setItem(row, 0, QTableWidgetItem(hex(message.arbitration_id)))
+            for i, byte in enumerate(message.data):
+                self.messages_table.setItem(row, i + 1, QTableWidgetItem(hex(byte)))
+
     def show_error(self, message):
         """Displays an error message to the user."""
         logging.error(message)
