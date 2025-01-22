@@ -34,6 +34,20 @@
            <item>
             <widget class="QTableView" name="tableMonitor"/>
            </item>
+           <item alignment="Qt::AlignLeft">
+            <widget class="QPushButton" name="buttonMonitorToggle">
+             <property name="text">
+              <string>Stop</string>
+             </property>
+            </widget>
+           </item>
+           <item alignment="Qt::AlignLeft">
+            <widget class="QPushButton" name="buttonMonitorClear">
+             <property name="text">
+              <string>Clear</string>
+             </property>
+            </widget>
+           </item>
           </layout>
          </widget>
         </item>

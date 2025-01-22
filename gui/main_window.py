@@ -1,8 +1,10 @@
 import logging
 from PyQt6.QtWidgets import (
-    QMainWindow, QTableWidgetItem, QMessageBox, QPushButton, QLineEdit, QTableWidget, QLabel
+    QMainWindow, QTableWidgetItem, QMessageBox, QPushButton, QLineEdit, QTableWidget, QLabel, QTableView
 )
+from PyQt6.QtGui import QStandardItemModel, QStandardItem
 from PyQt6.uic import loadUi
+from PyQt6.QtCore import QTimer
 from core.utils import parse_value
 from core.filter_manager import FilterManager
 from core.message_manager import MessageManager
@@ -26,10 +28,16 @@ class MainWindow(QMainWindow):
         self.init_filter_widgets()
         self.init_message_widgets()
         self.init_can_widgets()
+        self.init_monitor_widgets()
 
         # Setup tables
         self.setup_filter_table()
         self.setup_message_table()
+        self.setup_monitor_table()
+
+        # Set up message reception polling
+        self.message_poll_timer = QTimer(self)
+        self.message_poll_timer.timeout.connect(self.update_monitor_table)
 
         # Set initial CAN connection status
         self.update_status_indicator(False)
@@ -60,11 +68,15 @@ class MainWindow(QMainWindow):
         self.add_message_button = self.findChild(QPushButton, "buttonAddMessage")
         self.remove_message_button = self.findChild(QPushButton, "buttonRemoveMessage")
         self.clear_messages_button = self.findChild(QPushButton, "buttonClearMessages")
+        self.send_message_button = self.findChild(QPushButton, "buttonSendMessage")
+        self.send_selected_button = self.findChild(QPushButton, "buttonSendSelected")  # New button
 
         # Connect message buttons to handlers
         self.add_message_button.clicked.connect(self.handle_add_message)
         self.remove_message_button.clicked.connect(self.handle_remove_message)
         self.clear_messages_button.clicked.connect(self.handle_clear_messages)
+        self.send_message_button.clicked.connect(self.handle_send_message)
+        self.send_selected_button.clicked.connect(self.handle_send_selected_message)
         self.messages_table.itemChanged.connect(self.handle_edit_message)
 
     def init_can_widgets(self):
@@ -72,24 +84,66 @@ class MainWindow(QMainWindow):
         self.channel_input = self.findChild(QLineEdit, "inputCanChannel")
         self.bitrate_input = self.findChild(QLineEdit, "inputCanBitrate")
         self.connect_button = self.findChild(QPushButton, "buttonCanConnect")
+        self.monitor_toggle_button = self.findChild(QPushButton, "buttonMonitorToggle")
         self.status_indicator = self.findChild(QLabel, "ledCanStatus")
 
-        # Connect CAN connect button to handler
+        # Connect CAN buttons to handlers
         self.connect_button.clicked.connect(self.handle_connect)
+        self.monitor_toggle_button.clicked.connect(self.handle_monitor_toggle)
+
+    def init_monitor_widgets(self):
+        """Initialize widgets related to the monitor."""
+        self.monitor_table = self.findChild(QTableView, "tableMonitor")
+        self.clear_monitor_button = self.findChild(QPushButton, "buttonMonitorClear")
+
+        # Connect clear monitor button
+        self.clear_monitor_button.clicked.connect(self.handle_clear_monitor)
 
     def setup_filter_table(self):
-        """Setup the filters table."""
+        """Setup the filters table with in-place editing."""
         self.filters_table.setColumnCount(9)  # One for ID and eight for data bytes
         self.filters_table.setHorizontalHeaderLabels(["Filter ID"] + [f"Byte {i}" for i in range(8)])
         self.filters_table.setEditTriggers(self.filters_table.EditTrigger.AllEditTriggers)
 
     def setup_message_table(self):
-        """Setup the messages table."""
+        """Setup the messages table with in-place editing."""
         self.messages_table.setColumnCount(10)  # One for Name, ID, and eight for data bytes
         self.messages_table.setHorizontalHeaderLabels(
             ["Message Name", "Message ID"] + [f"Byte {i}" for i in range(8)]
         )
         self.messages_table.setEditTriggers(self.messages_table.EditTrigger.AllEditTriggers)
+
+    def setup_monitor_table(self):
+        """Setup the monitor table for displaying received messages."""
+        self.monitor_table = self.findChild(QTableView, "tableMonitor")
+        if not self.monitor_table:
+            raise ValueError("QTableView 'tableMonitor' not found in the UI file.")
+
+        self.monitor_model = QStandardItemModel(0, 10, self)  # 0 rows, 10 columns
+        self.monitor_model.setHorizontalHeaderLabels(
+            ["Timestamp", "Message ID"] + [f"Byte {i}" for i in range(8)]
+        )
+        self.monitor_table.setModel(self.monitor_model)
+
+    def handle_clear_monitor(self):
+        """Clears all entries in the monitor table."""
+        self.monitor_model.removeRows(0, self.monitor_model.rowCount())
+        logging.info("Monitor table cleared.")
+
+    def update_monitor_table(self):
+        """Updates the monitor table with the latest received messages."""
+        while True:
+            message = self.can_interface.get_received_message()
+            if not message:
+                break
+
+            row = [
+                QStandardItem(str(message.timestamp)),
+                QStandardItem(hex(message.arbitration_id)),
+            ] + [QStandardItem(hex(byte)) for byte in message.data]
+
+            self.monitor_model.appendRow(row)
+        logging.info("Monitor table updated with received messages.")
 
     def handle_add_filter(self):
         """Handles adding a new filter."""
@@ -369,30 +423,99 @@ class MainWindow(QMainWindow):
     def handle_connect(self):
         """Handles connecting and disconnecting to the CAN interface."""
         if self.can_interface.is_connected():
-            # Disconnect if already connected
             if self.can_interface.disconnect():
                 self.update_status_indicator(False)
                 self.connect_button.setText("Connect")
+                self.message_poll_timer.stop()
             else:
                 self.show_error("Failed to disconnect from the CAN interface.")
         else:
-            # Connect with user-specified channel and bitrate
             channel = self.channel_input.text().strip()
             bitrate = self.bitrate_input.text().strip()
-
             if not channel or not bitrate:
                 self.show_error("Channel and bitrate are required to connect.")
                 return
-
             try:
-                bitrate = int(bitrate)  # Ensure bitrate is an integer
+                bitrate = int(bitrate)
                 if self.can_interface.connect(channel, bitrate):
                     self.update_status_indicator(True)
                     self.connect_button.setText("Disconnect")
+                    self.message_poll_timer.start(100)  # Poll messages every 100ms
                 else:
                     self.show_error("Failed to connect to the CAN interface.")
             except ValueError:
                 self.show_error("Invalid bitrate. Please enter a valid number.")
+
+    def handle_send_message(self):
+        """Handles sending a CAN message."""
+        try:
+            message_id = parse_value(self.message_id_input.text())
+            data = [parse_value(input.text()) for input in self.message_byte_inputs if input.text().strip()]
+            if not (0 <= message_id <= 0x7FF):
+                raise ValueError(f"Invalid Message ID: {message_id}. Must be in range 0-0x7FF.")
+            if len(data) > 8:
+                raise ValueError(f"Invalid data length: {len(data)}. Must not exceed 8 bytes.")
+            self.can_interface.send_message(message_id, data)
+            self.show_info(f"Message sent: ID={hex(message_id)}, Data={data}")
+        except Exception as e:
+            self.show_error(f"Failed to send message: {e}")
+
+    def handle_send_selected_message(self):
+        """Handles sending a selected message from the table."""
+        selected_rows = self.messages_table.selectionModel().selectedRows()
+        if not selected_rows:
+            self.show_error("Please select a message to send.")
+            return
+
+        try:
+            for row in selected_rows:
+                # Extract Message ID
+                message_id_item = self.messages_table.item(row.row(), 1)
+                if not message_id_item:
+                    raise ValueError(f"Message ID is missing in row {row.row()}.")
+                message_id = parse_value(message_id_item.text())
+
+                # Extract Message Data
+                data = []
+                for col in range(2, 10):  # Columns 2-9 for data bytes
+                    item = self.messages_table.item(row.row(), col)
+                    if item and item.text().strip():
+                        data.append(parse_value(item.text()))
+
+                if not (0 <= message_id <= 0x7FF):
+                    raise ValueError(f"Invalid Message ID: {message_id}. Must be in range 0-0x7FF.")
+                if len(data) > 8:
+                    raise ValueError(f"Invalid data length: {len(data)}. Must not exceed 8 bytes.")
+
+                # Send the message using CAN interface
+                self.can_interface.send_message(message_id, data)
+                self.show_info(f"Message sent: ID={hex(message_id)}, Data={data}")
+        except Exception as e:
+            self.show_error(f"Failed to send selected message: {e}")
+
+    def handle_start_listening(self):
+        """Starts or stops listening for CAN messages."""
+        if self.can_interface.is_connected():
+            if self.connect_button.text() == "Start":
+                self.can_interface.start_receiving()
+                self.connect_button.setText("Stop")
+            else:
+                self.can_interface.stop_receiving()
+                self.connect_button.setText("Start")
+        else:
+            self.show_error("Connect to the CAN interface first.")
+
+    def update_received_messages(self):
+        """Updates the received messages table."""
+        message = self.can_interface.get_received_message()
+        while message:
+            row = self.messages_table.rowCount()
+            self.messages_table.insertRow(row)
+            self.messages_table.setItem(row, 0, QTableWidgetItem("Received"))
+            self.messages_table.setItem(row, 1, QTableWidgetItem(hex(message.arbitration_id)))
+            for i, byte in enumerate(message.data):
+                self.messages_table.setItem(row, i + 2, QTableWidgetItem(hex(byte)))
+            message = self.can_interface.get_received_message()
 
     def update_status_indicator(self, connected):
         """Updates the status indicator based on the connection state."""
@@ -401,45 +524,38 @@ class MainWindow(QMainWindow):
         else:
             self.status_indicator.setStyleSheet("background-color: red; border-radius: 8px;")
 
-def handle_send_message(self):
-    """Handles sending a CAN message."""
-    try:
-        message_id = parse_value(self.message_id_input.text())
-        data = [parse_value(input.text()) for input in self.message_byte_inputs if input.text().strip()]
-        
-        if not (0 <= message_id <= 0x7FF):
-            raise ValueError(f"Invalid Message ID: {message_id}. Must be in range 0-0x7FF.")
-        if len(data) > 8:
-            raise ValueError(f"Invalid data length: {len(data)}. Must not exceed 8 bytes.")
-        
-        self.can_interface.send_message(message_id, data)
-        self.show_info(f"Message sent: ID={hex(message_id)}, Data={data}")
-    except Exception as e:
-        self.show_error(f"Failed to send message: {e}")
+    def handle_monitor_toggle(self):
+        """Handles toggling the CAN message monitor."""
+        if not self.can_interface.is_connected():
+            self.show_error("Please connect to the CAN interface first.")
+            return
 
-    def handle_start_listening(self):
-        """Starts or stops listening for CAN messages."""
-        if self.can_interface.is_connected():
-            if self.connect_button.text() == "Start Listening":
-                self.can_interface.start_receiving()
-                self.connect_button.setText("Stop Listening")
-            else:
-                self.can_interface.stop_receiving()
-                self.connect_button.setText("Start Listening")
+        if self.monitor_toggle_button.text() == "Start":
+            self.can_interface.start_receiving()
+            self.monitor_toggle_button.setText("Stop")
+            logging.info("CAN monitoring started.")
         else:
-            self.show_error("Connect to the CAN interface first.")
-
-    def update_received_messages(self):
-        """Updates the received messages table."""
-        message = self.can_interface.get_received_message()
-        if message:
-            row = self.messages_table.rowCount()
-            self.messages_table.insertRow(row)
-            self.messages_table.setItem(row, 0, QTableWidgetItem(hex(message.arbitration_id)))
-            for i, byte in enumerate(message.data):
-                self.messages_table.setItem(row, i + 1, QTableWidgetItem(hex(byte)))
+            self.can_interface.stop_receiving()
+            self.monitor_toggle_button.setText("Start")
+            logging.info("CAN monitoring stopped.")
 
     def show_error(self, message):
         """Displays an error message to the user."""
         logging.error(message)
         QMessageBox.critical(self, "Error", message)
+
+    def show_info(self, message, details=None):
+        """
+        Displays an informational message to the user.
+        Args:
+            message (str): Main message to display.
+            details (str): Additional details for the message.
+        """
+        logging.info(message)
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        msg_box.setWindowTitle("Information")
+        msg_box.setText(message)
+        if details:
+            msg_box.setDetailedText(details)
+        msg_box.exec()
