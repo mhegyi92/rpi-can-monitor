@@ -114,14 +114,14 @@ class MainWindow(QMainWindow):
         self.messages_table.setEditTriggers(self.messages_table.EditTrigger.AllEditTriggers)
 
     def setup_monitor_table(self):
-        """Setup the monitor table for displaying received messages."""
+        """Setup the monitor table for displaying received and transmitted messages."""
         self.monitor_table = self.findChild(QTableView, "tableMonitor")
         if not self.monitor_table:
             raise ValueError("QTableView 'tableMonitor' not found in the UI file.")
 
-        self.monitor_model = QStandardItemModel(0, 10, self)  # 0 rows, 10 columns
+        self.monitor_model = QStandardItemModel(0, 11, self)  # 0 rows, 11 columns
         self.monitor_model.setHorizontalHeaderLabels(
-            ["Timestamp", "Message ID"] + [f"Byte {i}" for i in range(8)]
+            ["Timestamp", "Type", "Message ID"] + [f"Byte {i}" for i in range(8)]
         )
         self.monitor_table.setModel(self.monitor_model)
 
@@ -137,13 +137,18 @@ class MainWindow(QMainWindow):
             if not message:
                 break
 
-            row = [
-                QStandardItem(str(message.timestamp)),
-                QStandardItem(hex(message.arbitration_id)),
-            ] + [QStandardItem(hex(byte)) for byte in message.data]
-
+            # Add received message to the monitor table as 'Rx'
+            timestamp = QStandardItem(self.get_current_timestamp())
+            message_type = QStandardItem("Rx")
+            row = [timestamp, message_type, QStandardItem(hex(message.arbitration_id))] + [
+                QStandardItem(hex(byte)) for byte in message.data
+            ]
             self.monitor_model.appendRow(row)
-        logging.info("Monitor table updated with received messages.")
+
+            # Log the received message in hex format
+            logging.info(
+                f"Message received: ID={hex(message.arbitration_id)}, Data={[hex(byte) for byte in message.data]}"
+            )
 
     def handle_add_filter(self):
         """Handles adding a new filter."""
@@ -301,8 +306,9 @@ class MainWindow(QMainWindow):
 
         try:
             parsed_id = parse_value(message_id)
-            if not (0 <= parsed_id <= 255):
-                raise ValueError(f"Invalid Message ID. Must be in range 0-255. Got: {parsed_id}")
+            # Update validation range to 0-0x7FF
+            if not (0 <= parsed_id <= 0x7FF):
+                raise ValueError(f"Invalid Message ID. Must be in range 0-0x7FF. Got: {parsed_id}")
 
             parsed_bytes = []
             for i, byte in enumerate(message_bytes):
@@ -375,8 +381,9 @@ class MainWindow(QMainWindow):
 
             elif col == 1:  # Editing the Message ID
                 new_id = parse_value(item.text())
-                if not (0 <= new_id <= 255):
-                    raise ValueError(f"Invalid Message ID. Must be in range 0-255. Got: {new_id}")
+                # Update validation range to 0-0x7FF
+                if not (0 <= new_id <= 0x7FF):
+                    raise ValueError(f"Invalid Message ID. Must be in range 0-0x7FF. Got: {new_id}")
 
                 # Update the message ID
                 self.message_manager.remove_message(current_name)
@@ -423,13 +430,16 @@ class MainWindow(QMainWindow):
     def handle_connect(self):
         """Handles connecting and disconnecting to the CAN interface."""
         if self.can_interface.is_connected():
+            # Disconnect from the CAN interface
             if self.can_interface.disconnect():
                 self.update_status_indicator(False)
                 self.connect_button.setText("Connect")
-                self.message_poll_timer.stop()
+                self.message_poll_timer.stop()  # Stop polling messages
+                logging.info("Disconnected from CAN channel.")
             else:
                 self.show_error("Failed to disconnect from the CAN interface.")
         else:
+            # Connect to the CAN interface
             channel = self.channel_input.text().strip()
             bitrate = self.bitrate_input.text().strip()
             if not channel or not bitrate:
@@ -440,14 +450,23 @@ class MainWindow(QMainWindow):
                 if self.can_interface.connect(channel, bitrate):
                     self.update_status_indicator(True)
                     self.connect_button.setText("Disconnect")
+                    
+                    # Start monitoring automatically after connecting
+                    self.can_interface.start_receiving()
                     self.message_poll_timer.start(100)  # Poll messages every 100ms
+                    
+                    # Force an immediate monitor table update
+                    self.update_monitor_table()
+                    
+                    logging.info(f"Connected to CAN channel '{channel}' at {bitrate} bitrate.")
+                    logging.info("CAN monitoring started automatically.")
                 else:
                     self.show_error("Failed to connect to the CAN interface.")
             except ValueError:
                 self.show_error("Invalid bitrate. Please enter a valid number.")
 
     def handle_send_message(self):
-        """Handles sending a CAN message."""
+        """Handles sending a single CAN message."""
         try:
             message_id = parse_value(self.message_id_input.text())
             data = [parse_value(input.text()) for input in self.message_byte_inputs if input.text().strip()]
@@ -455,8 +474,20 @@ class MainWindow(QMainWindow):
                 raise ValueError(f"Invalid Message ID: {message_id}. Must be in range 0-0x7FF.")
             if len(data) > 8:
                 raise ValueError(f"Invalid data length: {len(data)}. Must not exceed 8 bytes.")
+
+            # Send the message via CAN interface
             self.can_interface.send_message(message_id, data)
-            self.show_info(f"Message sent: ID={hex(message_id)}, Data={data}")
+
+            # Log the message in hex format
+            logging.info(f"Message sent: ID={hex(message_id)}, Data={[hex(byte) for byte in data]}")
+
+            # Add the sent message to the monitor table as 'Tx'
+            timestamp = QStandardItem(self.get_current_timestamp())
+            message_type = QStandardItem("Tx")
+            row = [timestamp, message_type, QStandardItem(hex(message_id))] + [
+                QStandardItem(hex(byte)) for byte in data
+            ]
+            self.monitor_model.appendRow(row)
         except Exception as e:
             self.show_error(f"Failed to send message: {e}")
 
@@ -489,7 +520,18 @@ class MainWindow(QMainWindow):
 
                 # Send the message using CAN interface
                 self.can_interface.send_message(message_id, data)
-                self.show_info(f"Message sent: ID={hex(message_id)}, Data={data}")
+
+                # Log the message in hex format
+                logging.info(f"Message sent: ID={hex(message_id)}, Data={[hex(byte) for byte in data]}")
+
+                # Add the sent message to the monitor table
+                timestamp = QStandardItem(self.get_current_timestamp())
+                message_type = QStandardItem("Tx")
+                row = [timestamp, message_type, QStandardItem(hex(message_id))] + [
+                    QStandardItem(hex(byte)) for byte in data
+                ]
+                self.monitor_model.appendRow(row)
+
         except Exception as e:
             self.show_error(f"Failed to send selected message: {e}")
 
@@ -533,10 +575,16 @@ class MainWindow(QMainWindow):
         if self.monitor_toggle_button.text() == "Start":
             self.can_interface.start_receiving()
             self.monitor_toggle_button.setText("Stop")
+            self.message_poll_timer.start(100)  # Poll messages every 100ms
+            
+            # Force immediate update
+            self.update_monitor_table()
+            
             logging.info("CAN monitoring started.")
         else:
             self.can_interface.stop_receiving()
             self.monitor_toggle_button.setText("Start")
+            self.message_poll_timer.stop()  # Stop polling messages
             logging.info("CAN monitoring stopped.")
 
     def show_error(self, message):
@@ -559,3 +607,19 @@ class MainWindow(QMainWindow):
         if details:
             msg_box.setDetailedText(details)
         msg_box.exec()
+
+    def get_current_timestamp(self):
+        """Returns the current timestamp as a string."""
+        from datetime import datetime
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    
+    def closeEvent(self, event):
+        """Handles cleanup when the application is closed."""
+        if self.can_interface.is_connected():
+            self.can_interface.disconnect()  # Ensure the CAN interface is disconnected
+            logging.info("CAN interface disconnected on application close.")
+        else:
+            logging.info("CAN interface already disconnected.")
+        
+        logging.info("Application closed.")
+        event.accept()  # Accept the close event to proceed with shutting down the application

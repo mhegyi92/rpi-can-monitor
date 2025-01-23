@@ -26,7 +26,6 @@ class CANInterface:
             self.bitrate = bitrate
             self.bus = Bus(interface="socketcan", channel=self.channel, bitrate=self.bitrate)
             self.connected = True
-            logging.info(f"Connected to CAN channel '{channel}' at {bitrate} bitrate.")
             return True
         except Exception as e:
             logging.error(f"Failed to connect to CAN channel '{channel}': {e}")
@@ -38,12 +37,12 @@ class CANInterface:
         Disconnects from the CAN interface.
         """
         try:
+            self.stop_receiving()  # Ensure the receiving thread is stopped before disconnecting
             if self.bus:
                 self.bus.shutdown()
             self.connected = False
             self.channel = None
             self.bitrate = None
-            logging.info("Disconnected from CAN channel.")
             return True
         except Exception as e:
             logging.error(f"Failed to disconnect: {e}")
@@ -67,7 +66,6 @@ class CANInterface:
         try:
             msg = Message(arbitration_id=message_id, data=data, is_extended_id=False)
             self.bus.send(msg)
-            logging.info(f"Message sent: ID={hex(message_id)}, Data={data}")
         except Exception as e:
             logging.error(f"Failed to send message: {e}")
             raise
@@ -78,12 +76,22 @@ class CANInterface:
         """
         if not self.connected or not self.bus:
             raise ConnectionError("CAN interface is not connected.")
-        if self.receive_thread and self.receive_thread.is_alive():
+        if not self.receive_thread or not self.receive_thread.is_alive():
+            # Initialize and start the receive thread
+            self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
+            self.receive_thread.start()
+            logging.info("Started CAN message reception.")
+        else:
             logging.info("Receive thread is already running.")
-            return
-        self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
-        self.receive_thread.start()
-        logging.info("Started CAN message reception.")
+
+    def stop_receiving(self):
+        """
+        Stops the receiving thread by terminating the loop and clearing the thread reference.
+        """
+        if self.receive_thread and self.receive_thread.is_alive():
+            self.receive_queue.put(None)  # Insert a sentinel value to break the receive loop
+            self.receive_thread = None
+            logging.info("Stopped CAN message reception.")
 
     def _receive_loop(self):
         """
@@ -91,17 +99,11 @@ class CANInterface:
         """
         try:
             for msg in self.bus:
-                self.receive_queue.put(msg)
+                if not self.receive_thread:  # Stop if the thread reference is cleared
+                    break
+                self.receive_queue.put(msg)  # Add messages to the queue
         except Exception as e:
             logging.error(f"Error in receive loop: {e}")
-
-    def stop_receiving(self):
-        """
-        Stops the receiving thread.
-        """
-        if self.receive_thread:
-            self.receive_thread = None
-            logging.info("Stopped CAN message reception.")
 
     def get_received_message(self):
         """
@@ -112,3 +114,17 @@ class CANInterface:
         if not self.receive_queue.empty():
             return self.receive_queue.get()
         return None
+
+    def disconnect(self):
+        """Disconnects from the CAN interface."""
+        try:
+            self.stop_receiving()
+            if self.bus:
+                self.bus.shutdown()
+            self.connected = False
+            self.channel = None
+            self.bitrate = None
+            return True
+        except Exception as e:
+            logging.error(f"Failed to disconnect: {e}")
+            return False

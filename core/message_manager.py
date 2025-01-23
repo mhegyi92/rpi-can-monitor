@@ -26,6 +26,11 @@ class MessageManager:
             parsed_id = int(message_id, 16)
             parsed_data = [int(byte, 16) for byte in data.split()]
 
+            # Validate the message ID
+            if not (0 <= parsed_id <= 0x7FF):
+                logging.warning(f"Invalid Message ID: {parsed_id}. Must be in range 0-0x7FF.")
+                return False
+
             # Validate the data length
             if len(parsed_data) > 8:
                 logging.warning("Message data exceeds 8 bytes.")
