@@ -4,12 +4,11 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QStandardItemModel, QStandardItem
 from PyQt6.uic import loadUi
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, Qt
 from core.utils import parse_value
 from core.filter_manager import FilterManager
 from core.message_manager import MessageManager
 from core.can_interface import CANInterface
-
 
 class MainWindow(QMainWindow):
     """
@@ -23,6 +22,8 @@ class MainWindow(QMainWindow):
         self.filter_manager = FilterManager()
         self.message_manager = MessageManager()
         self.can_interface = CANInterface()
+        self.filtering_enabled = False
+        self.auto_scroll_enabled = True
 
         # Initialize GUI components
         self.init_filter_widgets()
@@ -42,6 +43,9 @@ class MainWindow(QMainWindow):
         # Set initial CAN connection status
         self.update_status_indicator(False)
 
+        # Connect monitor table scroll event
+        self.monitor_table.verticalScrollBar().valueChanged.connect(self.check_auto_scroll)
+
         logging.info("MainWindow initialized.")
 
     def init_filter_widgets(self):
@@ -58,6 +62,11 @@ class MainWindow(QMainWindow):
         self.remove_filter_button.clicked.connect(self.handle_remove_filter)
         self.clear_filters_button.clicked.connect(self.handle_clear_filters)
         self.filters_table.itemChanged.connect(self.handle_edit_filter)
+
+    def check_auto_scroll(self):
+        """Checks if the monitor table is fully scrolled down and enables/disables auto-scroll accordingly."""
+        scrollbar = self.monitor_table.verticalScrollBar()
+        self.auto_scroll_enabled = scrollbar.value() == scrollbar.maximum()
 
     def init_message_widgets(self):
         """Initialize widgets related to messages."""
@@ -95,9 +104,12 @@ class MainWindow(QMainWindow):
         """Initialize widgets related to the monitor."""
         self.monitor_table = self.findChild(QTableView, "tableMonitor")
         self.clear_monitor_button = self.findChild(QPushButton, "buttonMonitorClear")
+        self.filter_toggle_button = self.findChild(QPushButton, "buttonMonitorFilterToggle")
 
         # Connect clear monitor button
         self.clear_monitor_button.clicked.connect(self.handle_clear_monitor)
+        self.filter_toggle_button.setText("Filter On")
+        self.filter_toggle_button.clicked.connect(self.toggle_filtering)
 
     def setup_filter_table(self):
         """Setup the filters table with in-place editing."""
@@ -131,11 +143,15 @@ class MainWindow(QMainWindow):
         logging.info("Monitor table cleared.")
 
     def update_monitor_table(self):
-        """Updates the monitor table with the latest received messages."""
+        """Updates the monitor table with the latest received messages, applying filters if enabled."""
         while True:
             message = self.can_interface.get_received_message()
             if not message:
                 break
+
+            # Check if filtering is enabled and if message passes the filter
+            if self.filtering_enabled and not self.is_message_filtered(message):
+                continue  # Skip messages that don't match the filter
 
             # Add received message to the monitor table as 'Rx'
             timestamp = QStandardItem(self.get_current_timestamp())
@@ -150,6 +166,24 @@ class MainWindow(QMainWindow):
                 f"Message received: ID={hex(message.arbitration_id)}, Data={[hex(byte) for byte in message.data]}"
             )
 
+        # Auto-scroll to the bottom if enabled
+        if self.auto_scroll_enabled:
+            self.monitor_table.scrollToBottom()
+
+    def is_message_filtered(self, message):
+        """Checks if a message matches any active filters."""
+        filters = self.filter_manager.get_filters()
+        for f in filters:
+            if message.arbitration_id == f['id']:
+                return True  # Message matches a filter
+        return False  # Message does not match any filter
+
+    def toggle_filtering(self):
+        """Toggles the filtering of received messages."""
+        self.filtering_enabled = not self.filtering_enabled
+        self.filter_toggle_button.setText("Filter Off" if self.filtering_enabled else "Filter On")
+        logging.info(f"Filtering {'enabled' if self.filtering_enabled else 'disabled'}.")
+
     def handle_add_filter(self):
         """Handles adding a new filter."""
         filter_id = self.filter_id_input.text().strip()
@@ -162,8 +196,8 @@ class MainWindow(QMainWindow):
         try:
             # Parse and validate filter ID
             parsed_id = parse_value(filter_id)
-            if not (0 <= parsed_id <= 255):
-                raise ValueError(f"Invalid Filter ID. Must be in range 0-255. Got: {parsed_id}")
+            if not (0 <= parsed_id <= 0x7FF):  # Allow full standard CAN ID range
+                raise ValueError(f"Invalid Filter ID. Must be in range 0-0x7FF. Got: {parsed_id}")
 
             # Parse and validate each byte
             parsed_bytes = []
@@ -576,15 +610,12 @@ class MainWindow(QMainWindow):
             self.can_interface.start_receiving()
             self.monitor_toggle_button.setText("Stop")
             self.message_poll_timer.start(100)  # Poll messages every 100ms
-            
-            # Force immediate update
             self.update_monitor_table()
-            
             logging.info("CAN monitoring started.")
         else:
             self.can_interface.stop_receiving()
             self.monitor_toggle_button.setText("Start")
-            self.message_poll_timer.stop()  # Stop polling messages
+            self.message_poll_timer.stop()
             logging.info("CAN monitoring stopped.")
 
     def show_error(self, message):

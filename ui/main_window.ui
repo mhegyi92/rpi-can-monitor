@@ -42,6 +42,13 @@
             </widget>
            </item>
            <item alignment="Qt::AlignLeft">
+            <widget class="QPushButton" name="buttonMonitorFilterToggle">
+             <property name="text">
+              <string>Filter On</string>
+             </property>
+            </widget>
+           </item>
+           <item alignment="Qt::AlignLeft">
             <widget class="QPushButton" name="buttonMonitorClear">
              <property name="text">
               <string>Clear</string>
