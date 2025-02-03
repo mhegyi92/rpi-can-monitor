@@ -16,6 +16,7 @@ class CANInterface:
         self.bus = None
         self.receive_thread = None
         self.receive_queue = Queue()
+        self.receiving = False  # Flag to control receiving loop
 
     def connect(self, channel, bitrate):
         """
@@ -77,7 +78,7 @@ class CANInterface:
         if not self.connected or not self.bus:
             raise ConnectionError("CAN interface is not connected.")
         if not self.receive_thread or not self.receive_thread.is_alive():
-            # Initialize and start the receive thread
+            self.receiving = True
             self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
             self.receive_thread.start()
             logging.info("Started CAN message reception.")
@@ -86,12 +87,13 @@ class CANInterface:
 
     def stop_receiving(self):
         """
-        Stops the receiving thread by terminating the loop and clearing the thread reference.
+        Stops the receiving thread by terminating the loop and ensuring proper cleanup.
         """
+        self.receiving = False
         if self.receive_thread and self.receive_thread.is_alive():
-            self.receive_queue.put(None)  # Insert a sentinel value to break the receive loop
-            self.receive_thread = None
-            logging.info("Stopped CAN message reception.")
+            self.receive_thread.join(timeout=1)
+        self.receive_thread = None
+        logging.info("Stopped CAN message reception.")
 
     def _receive_loop(self):
         """
@@ -99,11 +101,12 @@ class CANInterface:
         """
         try:
             for msg in self.bus:
-                if not self.receive_thread:  # Stop if the thread reference is cleared
+                if not self.receiving:
                     break
-                self.receive_queue.put(msg)  # Add messages to the queue
+                self.receive_queue.put(msg)
         except Exception as e:
-            logging.error(f"Error in receive loop: {e}")
+            if self.receiving:
+                logging.error(f"Error in receive loop: {e}")
 
     def get_received_message(self):
         """
