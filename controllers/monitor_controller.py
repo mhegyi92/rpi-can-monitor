@@ -27,13 +27,29 @@ class MonitorController:
             if not message:
                 break
 
-            timestamp = QStandardItem(self.main_window.get_current_timestamp())
-            message_type = QStandardItem("Rx")
-            row = [timestamp, message_type, QStandardItem(hex(message.arbitration_id))]
-            row += [QStandardItem(hex(byte)) for byte in message.data]
+            # Create a message dictionary
+            message_dict = {
+                "timestamp": self.main_window.get_current_timestamp(),
+                "type": "Rx",
+                "id": hex(message.arbitration_id),
+                "data": [hex(byte) for byte in message.data]
+            }
+
+            # Add the message to the monitor table
+            timestamp_item = QStandardItem(message_dict["timestamp"])
+            type_item = QStandardItem(message_dict["type"])
+            id_item = QStandardItem(message_dict["id"])
+            data_items = [QStandardItem(byte) for byte in message_dict["data"]]
+            row = [timestamp_item, type_item, id_item] + data_items
             self.monitor_model.appendRow(row)
 
-        self.monitor_table.scrollToBottom()
+            # Auto-scroll to bottom
+            self.monitor_table.scrollToBottom()
+
+            # If the RemoteController is in server mode, broadcast this message.
+            remote_ctrl = getattr(self.main_window, "remote_controller", None)
+            if remote_ctrl and remote_ctrl.mode == "server" and remote_ctrl.server:
+                remote_ctrl.server.broadcast_message(message_dict)
 
     def append_remote_message(self, message):
         # Create QStandardItems from the remote message dictionary.
