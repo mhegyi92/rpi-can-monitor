@@ -1,5 +1,3 @@
----
-```markdown
 # CAN Monitor Tool
 
 A Python-based application for monitoring, sending, and managing CAN (Controller Area Network) messages. The tool supports both a graphical user interface (GUI) (using PyQt6) and a command-line interface (CLI) for headless operation. It also includes remote operation modes so that a client (e.g., on a Windows machine) can control a server instance (e.g., running on a Raspberry Pi with a CAN interface).
@@ -186,6 +184,3 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 ## Contact
 
 For questions or issues, please open an issue in the repository or email [your-email@example.com](mailto:your-email@example.com).
-
-```
----
