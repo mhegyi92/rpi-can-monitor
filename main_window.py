@@ -1,4 +1,3 @@
-# main_window.py
 import logging
 from PyQt6.QtWidgets import QMainWindow, QMessageBox, QLabel
 from PyQt6.uic import loadUi

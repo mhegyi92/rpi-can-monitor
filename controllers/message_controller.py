@@ -1,4 +1,3 @@
-# message_controller.py
 import logging
 from PyQt6.QtWidgets import QTableWidgetItem, QLineEdit, QPushButton, QTableWidget
 from core.message_manager import MessageManager

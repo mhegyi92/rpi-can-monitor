@@ -1,4 +1,3 @@
-# monitor_controller.py
 import logging
 from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import QTableView

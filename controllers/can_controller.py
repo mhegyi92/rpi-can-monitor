@@ -1,4 +1,3 @@
-# can_controller.py
 import logging
 from PyQt6.QtWidgets import QLineEdit, QPushButton
 from core.can_interface import CANInterface

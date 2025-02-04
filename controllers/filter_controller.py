@@ -1,4 +1,3 @@
-# filter_controller.py
 import logging
 from PyQt6.QtWidgets import QTableWidgetItem, QLineEdit, QPushButton, QTableWidget
 from core.filter_manager import FilterManager
