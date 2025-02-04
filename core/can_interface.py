@@ -100,10 +100,10 @@ class CANInterface:
         Receives messages and puts them in the queue.
         """
         try:
-            for msg in self.bus:
-                if not self.receiving:
-                    break
-                self.receive_queue.put(msg)
+            while self.receiving:
+                msg = self.bus.recv(timeout=1)
+                if msg is not None:
+                    self.receive_queue.put(msg)
         except Exception as e:
             if self.receiving:
                 logging.error(f"Error in receive loop: {e}")
@@ -117,17 +117,3 @@ class CANInterface:
         if not self.receive_queue.empty():
             return self.receive_queue.get()
         return None
-
-    def disconnect(self):
-        """Disconnects from the CAN interface."""
-        try:
-            self.stop_receiving()
-            if self.bus:
-                self.bus.shutdown()
-            self.connected = False
-            self.channel = None
-            self.bitrate = None
-            return True
-        except Exception as e:
-            logging.error(f"Failed to disconnect: {e}")
-            return False

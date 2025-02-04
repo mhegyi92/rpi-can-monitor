@@ -1,32 +1,33 @@
 import logging
-
+from core.utils import parse_value
 
 class MessageManager:
     """
     Manages CAN messages, allowing addition, removal, and validation with names.
+    All numeric inputs are accepted as strings (hex, binary, or decimal).
     """
 
     def __init__(self):
-        self.messages = []  # Stores messages as dictionaries: {'id': int, 'data': list[int], 'name': str}
+        # Each message is stored as a dictionary: {'id': int, 'data': list[int], 'name': str}
+        self.messages = []
 
-    def add_message(self, name, message_id, data):
+    def add_message(self, name: str, message_id: str, data: str) -> bool:
         """
         Adds a message to the list.
 
         Args:
             name (str): The name of the message.
             message_id (str): The message ID in hex, binary, or decimal format.
-            data (str): The data bytes in hex format.
+            data (str): The data bytes as a space-separated string (e.g., "0x01 0x02").
 
         Returns:
             bool: True if successfully added, False if invalid or duplicate.
         """
         try:
-            # Normalize the input
-            parsed_id = int(message_id, 16)
-            parsed_data = [int(byte, 16) for byte in data.split()]
+            parsed_id = parse_value(message_id)
+            parsed_data = [parse_value(byte) for byte in data.split()]
 
-            # Validate the message ID
+            # Validate the message ID (for standard 11-bit CAN IDs)
             if not (0 <= parsed_id <= 0x7FF):
                 logging.warning(f"Invalid Message ID: {parsed_id}. Must be in range 0-0x7FF.")
                 return False
@@ -36,7 +37,7 @@ class MessageManager:
                 logging.warning("Message data exceeds 8 bytes.")
                 return False
 
-            # Check for duplicate name or message
+            # Check for duplicate name or duplicate message (ID and data)
             for msg in self.messages:
                 if msg['name'] == name:
                     logging.warning(f"Duplicate message name detected: {name}")
@@ -45,7 +46,6 @@ class MessageManager:
                     logging.warning(f"Duplicate message detected: {msg}")
                     return False  # Duplicate message
 
-            # Add the message
             self.messages.append({'name': name, 'id': parsed_id, 'data': parsed_data})
             logging.info(f"Message added: Name={name}, ID={parsed_id}, Data={parsed_data}")
             return True
@@ -53,7 +53,7 @@ class MessageManager:
             logging.error(f"Error parsing message: {e}")
             return False
 
-    def remove_message(self, name):
+    def remove_message(self, name: str) -> bool:
         """
         Removes a message by its name.
 
@@ -71,23 +71,29 @@ class MessageManager:
         logging.warning(f"Message not found: Name={name}")
         return False
 
-    def update_message(self, name, message_id, data):
+    def update_message(self, name: str, message_id: str, data: str) -> None:
         """
         Updates a message with new data.
 
         Args:
             name (str): The name of the message.
-            message_id (int): The new message ID.
-            data (list[int]): The new data.
+            message_id (str): The new message ID in hex, binary, or decimal format.
+            data (str): The new data bytes as a space-separated string.
         """
-        for msg in self.messages:
-            if msg['name'] == name:
-                msg['id'] = message_id
-                msg['data'] = data
-                logging.info(f"Message updated: Name={name}, ID={message_id}, Data={data}")
-                return
-        logging.warning(f"Message with Name={name} not found. Adding as new.")
-        self.add_message(name, hex(message_id), " ".join(hex(b) for b in data))
+        try:
+            parsed_id = parse_value(message_id)
+            parsed_data = [parse_value(byte) for byte in data.split()]
+
+            for msg in self.messages:
+                if msg['name'] == name:
+                    msg['id'] = parsed_id
+                    msg['data'] = parsed_data
+                    logging.info(f"Message updated: Name={name}, ID={parsed_id}, Data={parsed_data}")
+                    return
+            logging.warning(f"Message with Name={name} not found. Adding as new.")
+            self.add_message(name, message_id, data)
+        except ValueError as e:
+            logging.error(f"Error updating message: {e}")
 
     def get_messages(self):
         """Returns the list of messages."""

@@ -2,7 +2,7 @@ import sys
 import argparse
 import logging
 from PyQt6.QtWidgets import QApplication, QStyleFactory
-from gui.main_window import MainWindow
+from main_window import MainWindow
 
 # Optional custom stylesheet
 stylesheet = """

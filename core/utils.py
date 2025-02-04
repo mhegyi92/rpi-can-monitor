@@ -11,9 +11,10 @@ def parse_value(value):
     Raises:
         ValueError: If the format is invalid.
     """
-    if value.startswith("0x"):
+    value_lower = value.lower()
+    if value_lower.startswith("0x"):
         return int(value, 16)
-    elif value.startswith("0b"):
+    elif value_lower.startswith("0b"):
         return int(value, 2)
     else:
         return int(value)
