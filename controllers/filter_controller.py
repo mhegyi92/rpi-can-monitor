@@ -1,5 +1,6 @@
 import logging
 from PyQt6.QtWidgets import QTableWidgetItem, QLineEdit, QPushButton, QTableWidget
+from PyQt6.QtCore import Qt
 from core.filter_manager import FilterManager
 from core.utils import parse_value
 
@@ -39,7 +40,10 @@ class FilterController:
 
         for row_index, f in enumerate(filters):
             self.filters_table.insertRow(row_index)
-            self.filters_table.setItem(row_index, 0, QTableWidgetItem(hex(f['id'])))
+            item_id = QTableWidgetItem(hex(f['id']))
+            # Store the entire filter dictionary in UserRole so we can refer back to it later
+            item_id.setData(Qt.ItemDataRole.UserRole, f)
+            self.filters_table.setItem(row_index, 0, item_id)
             for col_index, byte_value in enumerate(f['mask']):
                 self.filters_table.setItem(row_index, col_index + 1, QTableWidgetItem(hex(byte_value)))
 
@@ -108,9 +112,38 @@ class FilterController:
         self.update_filters_table()
 
     def handle_edit_filter(self, item):
-        """Handles editing a filter directly in the table.
-        (For brevity, detailed editing logic is omitted. You can refactor the code here similar to the add/remove routines.)
-        """
-        # You would retrieve the row, re-parse the updated values,
-        # remove the old filter, and add the new filter.
-        pass
+        """Handles editing a filter directly in the table."""
+        row = item.row()
+        # Get the original filter from the first column’s stored data
+        id_item = self.filters_table.item(row, 0)
+        if not id_item:
+            return
+        old_filter = id_item.data(Qt.ItemDataRole.UserRole)
+        if not old_filter:
+            return
+
+        old_filter_id_str = hex(old_filter['id'])
+        old_mask_str = " ".join(hex(b) for b in old_filter['mask'])
+
+        # Read new values from the entire row
+        new_filter_id_text = self.filters_table.item(row, 0).text().strip()
+        new_mask_list = []
+        for col in range(1, 9):
+            cell_item = self.filters_table.item(row, col)
+            cell_text = cell_item.text().strip() if cell_item and cell_item.text().strip() else "0"
+            new_mask_list.append(cell_text)
+        new_mask_str = " ".join(new_mask_list)
+
+        # Remove the old filter using its original ID and mask
+        if self.filter_manager.remove_filter(old_filter_id_str, old_mask_str):
+            # Add the new filter using the updated values
+            if self.filter_manager.add_filter(new_filter_id_text, new_mask_str):
+                logging.info("Filter updated via in-table edit.")
+            else:
+                self.main_window.show_error("Failed to update filter (duplicate or invalid).")
+        else:
+            self.main_window.show_error("Failed to update filter (old filter removal failed).")
+
+        # Refresh the table so that user data is updated
+        self.update_filters_table()
+

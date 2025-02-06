@@ -1,5 +1,6 @@
 import logging
 from PyQt6.QtWidgets import QTableWidgetItem, QLineEdit, QPushButton, QTableWidget
+from PyQt6.QtCore import Qt
 from core.message_manager import MessageManager
 from core.utils import parse_value
 
@@ -46,7 +47,10 @@ class MessageController:
 
         for row_index, msg in enumerate(messages):
             self.messages_table.insertRow(row_index)
-            self.messages_table.setItem(row_index, 0, QTableWidgetItem(msg['name']))
+            item_name = QTableWidgetItem(msg['name'])
+            # Store the complete message dictionary in UserRole for later reference
+            item_name.setData(Qt.ItemDataRole.UserRole, msg)
+            self.messages_table.setItem(row_index, 0, item_name)
             self.messages_table.setItem(row_index, 1, QTableWidgetItem(hex(msg['id'])))
             for col_index, byte_value in enumerate(msg['data']):
                 self.messages_table.setItem(row_index, col_index + 2, QTableWidgetItem(hex(byte_value)))
@@ -111,19 +115,85 @@ class MessageController:
         self.update_messages_table()
 
     def handle_edit_message(self, item):
-        """Handles editing a message directly in the table.
-        (Detailed editing logic would be similar to the filter editing method.)
-        """
-        pass
+        """Handles editing a message directly in the table."""
+        row = item.row()
+        name_item = self.messages_table.item(row, 0)
+        if not name_item:
+            return
+        old_msg = name_item.data(Qt.ItemDataRole.UserRole)
+        if not old_msg:
+            return
+
+        # Read new values from the row:
+        new_name = self.messages_table.item(row, 0).text().strip()
+        new_message_id_text = self.messages_table.item(row, 1).text().strip()
+        new_data_list = []
+        for col in range(2, 10):
+            cell_item = self.messages_table.item(row, col)
+            cell_text = cell_item.text().strip() if cell_item and cell_item.text().strip() else "0"
+            new_data_list.append(cell_text)
+        new_data_str = " ".join(new_data_list)
+
+        # Use the MessageManager’s update function (which updates if the message exists, or adds it if not)
+        self.message_manager.update_message(new_name, new_message_id_text, new_data_str)
+
+        # Update the stored message in the UserRole data (a simple conversion is used here)
+        try:
+            new_message = {
+                "name": new_name,
+                "id": int(new_message_id_text, 0),
+                "data": [int(x, 0) for x in new_data_list]
+            }
+            name_item.setData(Qt.ItemDataRole.UserRole, new_message)
+            logging.info("Message updated via in-table edit.")
+        except Exception as e:
+            self.main_window.show_error(f"Error updating message: {e}")
 
     def handle_send_message(self):
-        """Handles sending a single message.
-        (You might call the CAN controller’s send functionality here.)
-        """
-        pass
+        """Handles sending a message defined in the text fields."""
+        name = self.message_name_input.text().strip()
+        message_id_text = self.message_id_input.text().strip()
+        message_bytes = [field.text().strip() for field in self.message_byte_inputs]
+
+        if not message_id_text:
+            self.main_window.show_error("Message ID is required to send a message.")
+            return
+
+        try:
+            # Use int(x, 0) so that hex (0x..), binary (0b..), or decimal are supported
+            parsed_id = int(message_id_text, 0)
+            parsed_data = [int(b, 0) if b else 0 for b in message_bytes]
+
+            can_interface = self.main_window.can_controller.can_interface
+            if not can_interface.is_connected():
+                self.main_window.show_error("CAN interface is not connected.")
+                return
+
+            can_interface.send_message(parsed_id, parsed_data)
+            logging.info(f"Sent message: ID={hex(parsed_id)}, Data={[hex(d) for d in parsed_data]}")
+        except Exception as e:
+            self.main_window.show_error(f"Error sending message: {e}")
 
     def handle_send_selected_message(self):
-        """Handles sending selected messages.
-        (You might loop through selected rows and trigger sending.)
-        """
-        pass
+        """Handles sending one or more selected messages from the messages table."""
+        selected_rows = sorted({index.row() for index in self.messages_table.selectedIndexes()})
+        if not selected_rows:
+            self.main_window.show_error("Please select one or more messages to send.")
+            return
+
+        can_interface = self.main_window.can_controller.can_interface
+        if not can_interface.is_connected():
+            self.main_window.show_error("CAN interface is not connected.")
+            return
+
+        for row in selected_rows:
+            name_item = self.messages_table.item(row, 0)
+            if name_item:
+                message = name_item.data(Qt.ItemDataRole.UserRole)
+                if message:
+                    try:
+                        can_interface.send_message(message['id'], message['data'])
+                        logging.info(f"Sent message: {message['name']} (ID={hex(message['id'])})")
+                    except Exception as e:
+                        self.main_window.show_error(f"Error sending message '{message['name']}': {e}")
+

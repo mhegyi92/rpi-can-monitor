@@ -16,6 +16,7 @@ class CANInterface:
         self.bus = None
         self.receive_thread = None
         self.receive_queue = Queue()
+        self.tx_queue = Queue()
         self.receiving = False  # Flag to control receiving loop
 
     def connect(self, channel, bitrate):
@@ -67,6 +68,7 @@ class CANInterface:
         try:
             msg = Message(arbitration_id=message_id, data=data, is_extended_id=False)
             self.bus.send(msg)
+            self.tx_queue.put(msg)
         except Exception as e:
             logging.error(f"Failed to send message: {e}")
             raise

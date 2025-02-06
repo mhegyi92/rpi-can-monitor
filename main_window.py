@@ -28,7 +28,8 @@ class MainWindow(QMainWindow):
         # Set up a timer for polling received messages
         self.message_poll_timer = QTimer(self)
         self.message_poll_timer.timeout.connect(self.monitor_controller.update_monitor_table)
-
+        self.message_poll_timer.start(100)
+        
         # Set initial CAN connection status
         self.update_status_indicator(False)
 

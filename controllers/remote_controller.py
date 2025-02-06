@@ -268,10 +268,8 @@ class RemoteController:
         'timestamp', 'type', 'id', and 'data'.
         Forward it to the monitor controller for display.
         """
-        if hasattr(self.monitor_controller, "append_remote_message"):
-            self.monitor_controller.append_remote_message(message)
-        else:
-            logging.warning("Monitor controller does not support remote messages.")
+        self.monitor_controller.append_message(message)
+
 
     def send_remote_command(self, command):
         """
