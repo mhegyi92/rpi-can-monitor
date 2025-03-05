@@ -2,7 +2,7 @@ import sys
 import argparse
 import logging
 from PyQt6.QtWidgets import QApplication, QStyleFactory
-from main_window import MainWindow
+from ui.frameworks.pyqt.main_window import MainWindow
 
 # Import core modules for CLI mode
 from core.can_interface import CANInterface
@@ -10,7 +10,7 @@ from core.filter_manager import FilterManager
 from core.message_manager import MessageManager
 from core.utils import parse_value
 # Import remote classes from your controllers
-from controllers.remote_controller import RemoteServer, RemoteClient
+from controllers.frameworks.pyqt.remote_controller import RemoteServer, RemoteClient
 from PyQt6.QtCore import QCoreApplication
 
 # Optional custom stylesheet for GUI mode
@@ -167,15 +167,46 @@ def main():
                         help="Message to be sent (e.g., 'id=0x123;data=0x01 0x02')")
     parser.add_argument("--channel", type=str, help="CAN channel (CLI mode)", default="can0")
     parser.add_argument("--bitrate", type=str, help="CAN bitrate (CLI mode)", default="500000")
+    # Add command-line argument for UI selection
+    parser.add_argument("--pydracula", action="store_true", help="Use the PyDracula UI")
     args = parser.parse_args()
 
     if args.action:
         run_cli(args)
     else:
-        app = QApplication(sys.argv)
-        app.setStyle(QStyleFactory.create("Fusion"))
-        app.setStyleSheet(stylesheet)
-        window = MainWindow()
+        # Fix for high DPI displays
+        import os
+        os.environ["QT_FONT_DPI"] = "96"
+        
+        if args.pydracula:
+            try:
+                # Use the PyDracula UI with PySide6
+                from PySide6.QtWidgets import QApplication
+                from PySide6.QtGui import QIcon
+                app = QApplication(sys.argv)
+                app.setWindowIcon(QIcon("ui/assets/images/images/PyDracula.png"))
+                
+                # Import the PyDracula window
+                from ui.frameworks.pyside.pydracula_window import PyDraculaWindow
+                window = PyDraculaWindow()
+            except ImportError as e:
+                print(f"Error loading PySide6: {e}")
+                print("Falling back to PyQt6 version of modern UI...")
+                from PyQt6.QtWidgets import QApplication
+                from PyQt6.QtGui import QIcon
+                app = QApplication(sys.argv)
+                app.setWindowIcon(QIcon("ui/assets/images/images/PyDracula.png"))
+                # Use our PyQt6 implementation of a modern UI
+                from ui.frameworks.pyqt.pydracula_window import PyQtPyDraculaWindow
+                window = PyQtPyDraculaWindow()
+        else:
+            # Use the original UI with PyQt6
+            from PyQt6.QtWidgets import QApplication
+            app = QApplication(sys.argv)
+            app.setStyle(QStyleFactory.create("Fusion"))
+            app.setStyleSheet(stylesheet)
+            window = MainWindow()
+            
         window.show()
         sys.exit(app.exec())
 

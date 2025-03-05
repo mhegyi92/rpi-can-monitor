@@ -4,11 +4,11 @@ from PyQt6.uic import loadUi
 from PyQt6.QtCore import QTimer
 
 # Import the separated controllers
-from controllers.filter_controller import FilterController
-from controllers.message_controller import MessageController
-from controllers.can_controller import CANController
-from controllers.monitor_controller import MonitorController
-from controllers.remote_controller import RemoteController
+from controllers.frameworks.pyqt.filter_controller import FilterController
+from controllers.frameworks.pyqt.message_controller import MessageController
+from controllers.frameworks.pyqt.can_controller import CANController
+from controllers.frameworks.pyqt.monitor_controller import MonitorController
+from controllers.frameworks.pyqt.remote_controller import RemoteController
 
 class MainWindow(QMainWindow):
     """
@@ -16,7 +16,7 @@ class MainWindow(QMainWindow):
     """
     def __init__(self):
         super().__init__()
-        loadUi("ui/main_window.ui", self)
+        loadUi("ui/designs/main_window.ui", self)
 
         # Instantiate controllers
         self.filter_controller = FilterController(self)

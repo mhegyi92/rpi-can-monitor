@@ -39,20 +39,26 @@ class FilterManager:
             logging.error(f"Error parsing filter: {e}")
             return False
 
-    def remove_filter(self, filter_id: str, mask: str) -> bool:
+    def remove_filter(self, filter_id: str, mask) -> bool:
         """
         Removes a filter from the list.
 
         Args:
             filter_id (str): The filter ID in hex, binary, or decimal format.
-            mask (str): The mask as a space-separated string.
+            mask: Either a list of integers or a space-separated string.
 
         Returns:
             bool: True if successfully removed, False otherwise.
         """
         try:
             parsed_id = parse_value(filter_id)
-            parsed_mask = [parse_value(byte) for byte in mask.split()]
+            
+            # Handle both string and list inputs for mask
+            if isinstance(mask, str):
+                parsed_mask = [parse_value(byte) for byte in mask.split()]
+            else:
+                # Already a list
+                parsed_mask = mask
 
             for f in self.filters:
                 if f['id'] == parsed_id and f['mask'] == parsed_mask:
